@@ -1,5 +1,6 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
+import "hardhat-gas-reporter";
 
 const config: HardhatUserConfig = {
   networks: {
@@ -10,7 +11,21 @@ const config: HardhatUserConfig = {
       }
     },
   },
-  solidity: "0.8.19",
+  solidity: {
+    version: '0.8.19',
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 100,
+      },
+    }
+  },
+  gasReporter: {
+    enabled: false,
+    currency: 'USD',
+    excludeContracts: ['./contracts/mock'],
+    src: './contracts'
+  },
 };
 
 export default config;

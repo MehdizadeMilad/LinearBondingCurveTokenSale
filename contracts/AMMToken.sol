@@ -36,13 +36,6 @@ contract AMMToken is
          * Token Parameters
          */
         ERC20("Mock Project Token", "MPT")
-        /**
-         * Curve Parameters
-         */
-        LinearBundingCurve(
-            1 ether, // Initial price of tokens in ETH (e.g., 0.001 ETH)
-            1 ether // Price increase per token sold (e.g., 0.0001 ETH)
-        )
     {}
 
     /** ------------------------------------ External Functions ------------------------------------ */
@@ -51,8 +44,6 @@ contract AMMToken is
      * Buy/Mint Project Token with ETH
      */
     receive() external payable {
-        // TODO also consider the fractional purchase - prb/math.
-
         enforce_normal_gas_price();
 
         uint256 _deposit_amount = msg.value;
@@ -60,18 +51,21 @@ contract AMMToken is
 
         uint256 _current_total_supply = totalSupply();
 
-        uint256 _current_buy_price = calculate_buy_price(
-            reserve_balance,
-            _deposit_amount,
-            _current_total_supply
+        uint256 _count_of_token_to_buy = how_many_token_eth_can_buy(
+            totalSupply(),
+            _deposit_amount
+        );
+
+        uint256 _current_buy_price = token_to_ETH(
+            totalSupply(),
+            _count_of_token_to_buy
         );
 
         require(_deposit_amount >= _current_buy_price, "deposit underpriced!");
 
-        //TODO to be adjusted
-        uint256 tokensToMint = (_deposit_amount / _current_buy_price) * 1e18;
+        uint256 tokensToMint = _count_of_token_to_buy * 1e18;
 
-        reserve_balance += _deposit_amount;
+        reserve_balance += _current_buy_price;
 
         emit Minted(
             msg.sender,
@@ -101,8 +95,6 @@ contract AMMToken is
         uint256 _current_sell_price = calculate_sell_price();
         uint256 eth_to_return = (amount / 1e18) * (_current_sell_price);
 
-        // TODO also consider the fractional purchase - prb/math.
-
         _burn(address(this), amount);
 
         reserve_balance -= eth_to_return;
@@ -127,16 +119,17 @@ contract AMMToken is
         revert NotImplemented();
     }
 
-    /** ------------------------------------ External View Functions ------------------------------------ */
+    /** ------------------------------------ External View Helper Functions ------------------------------------ */
 
-    function current_buy_price(
-        uint256 _eth_deposit_amount
-    ) public view returns (uint256) {
-        return 1 ether;
-            // calculate_buy_price(
-            //     reserve_balance,
-            //     _eth_deposit_amount,
-            //     totalSupply()
-            // );
+    function required_eth_to_buy_token(
+        uint256 _token_to_buy
+    ) external view returns (uint256) {
+        return token_to_ETH(totalSupply(), _token_to_buy);
+    }
+
+    function amount_of_token_eth_buys(
+        uint256 _final_cost
+    ) external view returns (uint256) {
+        return how_many_token_eth_can_buy(totalSupply(), _final_cost);
     }
 }

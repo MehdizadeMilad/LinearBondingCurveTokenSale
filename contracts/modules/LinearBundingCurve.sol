@@ -5,59 +5,14 @@ import "hardhat/console.sol";
 contract LinearBundingCurve {
     /** ------------------------------------ State variables ------------------------------------ */
 
-    uint256 public initial_price = 0; // Initial price of tokens in ETH (e.g., 0.001 ETH)
-    uint256 public price_slope = 0; // Price increase per token sold (e.g., 0.0001 ETH)
+    uint256 public INITIAL_PRICE = 1 ether; // The initial price of tokens in ETH (e.g., 0.001 ETH)
+    uint256 public constant INITIAL_SUPPLY = 0; // The initial supply of tokens set to 0.
+    uint256 public constant PRICE_SLOPE = 1 ether; // The price increase per token sold - fixed at 1 ether.
 
     /** ------------------------------------ Constructor ------------------------------------ */
-    constructor(uint256 _initial_price, uint256 _price_slope) {
-        initial_price = _initial_price;
-
-        // require(_price_slope > 0, "_price_slope > 0!"); //V1: make the input parameteric and Validate them
-        price_slope = _price_slope;
-    }
+    constructor() {}
 
     /** ------------------------------------ Internal functions ------------------------------------ */
-    /**
-     * Calculate how many token can be purchased with the deposited ETH using Linear Bunding Curve
-     * @param _reserve_supply the current supply of the Reserve currency
-     * @param _deposit_amount the amount of the deposit in ETH
-     * @param _token_supply the current toke supply
-     *
-     */
-    function calculate_buy_price(
-        uint256 _reserve_supply,
-        uint256 _deposit_amount,
-        uint256 _token_supply
-    ) internal view returns (uint256 collateral_required) {
-        // TODO figure out the exact math formula
-        // to calculate the amount of token can be purchased with the current deposit
-
-        // bool _continue = false;
-        // uint256 _b = 1;
-        // uint256 _m = 5;
-        // uint256 _deposit_remaining = _deposit_amount;
-        // uint256 _bought_tokens = 0;
-
-        // do {
-        //     uint256 _cp = _token_supply == 0
-        //         ? _b
-        //         : _m * _token_supply;
-
-        //     if (_cp <= _deposit_remaining) {
-        //         _deposit_remaining -= _cp;
-        //         _bought_tokens++;
-        //         _token_supply += _bought_tokens;
-        //         _continue = true;
-        //     } else {
-        //         _continue = false;
-        //     }
-        // } while (_continue);
-
-        // uint256 tokensSold = _token_supply / 1e18; // scale down to calculate
-
-        // collateral_required = initial_price + (tokensSold * price_slope);
-        return 1 ether; //MOCK return value
-    }
 
     /**
      * calculate the amount of Reserve ($ETH) to return at sale
@@ -77,5 +32,52 @@ contract LinearBundingCurve {
         // both the AMM’s Reserve Token balance and the Continuous Token’s supply have decreased
         // require(_sell_amount > 0, "_sell_amount > 0");
         return 0;
+    }
+
+    /**
+     * Calculate how much does it cost in ETH to buy a certain amount of token
+     *  the formula to calculate it: Linear bunding curve  y = x
+     *      ((new_token_amount_to_buy / 2) * (2 * _current_token_supply + new_token_amount_to_buy + 1))
+     * @param _current_token_suuply_in_wei totalSupply of the token
+     * @param _new_token_amount_to_buy the amount of new token to mint
+     *
+     * @return _final_cost the require amount of ETH to buy {_new_token_amount_to_buy} right now!
+     */
+    function token_to_ETH(
+        uint256 _current_token_suuply_in_wei,
+        uint256 _new_token_amount_to_buy
+    ) internal pure returns (uint256 _final_cost) {
+        uint256 _PIP = 1000; // 3 fixed-points after the decimal
+        uint256 _SCALE = 1e18;
+
+        uint256 _token_supply_in_ether = _current_token_suuply_in_wei / _SCALE;
+
+        uint256 _a = ((_new_token_amount_to_buy * _PIP) / 2);
+        uint256 _b = (2 * _token_supply_in_ether);
+        uint256 _c = (_new_token_amount_to_buy + 1);
+
+        _final_cost = ((_a * (_b + _c)) / _PIP) * _SCALE;
+    }
+
+    /**
+     * Calculate how many token with the {_deposited_eth_amount} can be bought in current Curve status
+     * @param _current_supply_in_wei the current token totalSupply() in WEI
+     * @param _deposited_eth_amount the amount of deposited ETH
+     *
+     * @notice this implementation is not scalable and can only be used to buy at most 14k token.
+     *
+     * @return _token_count the amount of token that can be bought with the {_deposited_eth_amount} ETH
+     */
+    function how_many_token_eth_can_buy(
+        uint256 _current_supply_in_wei,
+        uint256 _deposited_eth_amount
+    ) internal pure returns (uint256 _token_count) {
+        //! V1: Replace with an advanced math formula to make it scalable
+        for (uint i = 0; ; i++) {
+            uint256 _cost = token_to_ETH(_current_supply_in_wei, i);
+            if (_cost >= _deposited_eth_amount) {
+                return i;
+            }
+        }
     }
 }

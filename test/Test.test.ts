@@ -89,8 +89,116 @@ describe("Special Token", function () {
     })
   });
 
-
   describe("Buy", function () {
+    it("should reject fractions", async () => {
+      const { amm_token, otherAccount } = await loadFixture(
+        initialize_amm_token
+      );
+
+      const _initial_price = new BN(await amm_token.INITIAL_PRICE()).add(ETH(0.5));
+
+      await expect(
+        otherAccount.sendTransaction({ to: amm_token.target, value: _initial_price.toString() })
+      ).to.be.rejectedWith("deposit underpriced!")
+    })
+
+    it("should increase the price of tokens linearly respecting n(n+1)/2 formula", async () => {
+      const { amm_token, otherAccount } = await loadFixture(
+        initialize_amm_token
+      );
+
+      // the first token costs 1 ETH
+      expect(await amm_token.required_eth_to_buy_token(1)).to.be.equal(ETH(1))
+
+      // ∑n=110n = (1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10) = 55 
+      expect(await amm_token.required_eth_to_buy_token(10)).to.be.equal(ETH(55))
+      expect(await amm_token.required_eth_to_buy_token(20)).to.be.equal(ETH(210))
+
+      expect(
+        await amm_token.amount_of_token_eth_buys(
+          await amm_token.required_eth_to_buy_token(1)
+        )).to.be.equal(1)
+
+      expect(
+        await amm_token.amount_of_token_eth_buys(
+          await amm_token.required_eth_to_buy_token(20)
+        )).to.be.equal(20)
+
+      expect(
+        await amm_token.amount_of_token_eth_buys(
+          await amm_token.required_eth_to_buy_token(20)
+        )).to.be.equal(20)
+    })
+
+    it("should increase the price with each token sold", async () => {
+      const { amm_token, otherAccount } = await loadFixture(
+        initialize_amm_token
+      );
+
+      const _token_contract_address = amm_token.target;
+
+      // at the beginning 1 token costs 1 ETH
+      expect(await amm_token.required_eth_to_buy_token(1)).to.be.equal(ETH(1))
+      //  OR
+      expect(
+        await amm_token.amount_of_token_eth_buys(
+          await amm_token.required_eth_to_buy_token(1)
+        )).to.be.equal(1)
+
+      // 2 tokens costs 3 ETH
+      expect(await amm_token.required_eth_to_buy_token(2)).to.be.equal(ETH(3))
+
+      // ∑n=110n = (1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10) = 55 
+      expect(await amm_token.required_eth_to_buy_token(10)).to.be.equal(ETH(55))
+
+      const _required_eth_to_buy_20_token = await amm_token.required_eth_to_buy_token(20);
+      expect(_required_eth_to_buy_20_token).to.be.equal(ETH(210))
+
+      const _amount_of_token_eth_can_buy = await amm_token.amount_of_token_eth_buys(_required_eth_to_buy_20_token)
+      expect(_amount_of_token_eth_can_buy).to.be.equal(20)
+
+
+      // After actually buying 1 token
+      await otherAccount.sendTransaction({ to: _token_contract_address, value: (await amm_token.required_eth_to_buy_token(1)).toString() });
+
+      // each token will now cost 2 ETH
+      const _cost_of_buying_1_token_now = await amm_token.required_eth_to_buy_token(1);
+      expect(_cost_of_buying_1_token_now).to.be.equal(ETH(2))
+
+      // Buy 1 more token (2 in total)
+      await otherAccount.sendTransaction(
+        {
+          to: _token_contract_address,
+          value: (_cost_of_buying_1_token_now).toString()
+        });
+
+      // 2 token has been bought by {otherAccount}
+      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(2))
+
+      // after the first 2 purchases, each token will cost 3 ETH
+      expect(await amm_token.required_eth_to_buy_token(1)).to.be.equal(ETH(3));
+    })
+
+    it("should allow a whale to purchase a big amount of tokens", async () => {
+      const { amm_token, otherAccount } = await loadFixture(
+        initialize_amm_token
+      );
+
+      const _token_contract_address = amm_token.target;
+
+      const _token_to_buy = 1_000
+
+      await otherAccount.sendTransaction(
+        {
+          to: _token_contract_address,
+          value: (await amm_token.required_eth_to_buy_token(_token_to_buy)).toString()
+        })
+
+      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(_token_to_buy))
+
+      const _new_token_price = _token_to_buy + 1; // 1001
+      expect(await amm_token.required_eth_to_buy_token(1)).to.be.equal(ETH(_new_token_price));
+    })
 
     it("should revert if deposited ETH is < 1", async () => {
       const { amm_token, otherAccount } = await loadFixture(
@@ -107,14 +215,13 @@ describe("Special Token", function () {
 
     })
 
-    it("should reject underpriced deposit", async () => {
+    it("should reject underpriced deposits", async () => {
       const { amm_token, otherAccount } = await loadFixture(
         initialize_amm_token
       );
 
-      const _initial_price = new BN(await amm_token.initial_price());
+      const _initial_price = new BN(await amm_token.INITIAL_PRICE());
 
-      // Try to buy underpriced
       await expect(
         otherAccount.sendTransaction({ to: amm_token.target, value: _initial_price.sub(new BN(1)).toString() })
       ).to.be.rejectedWith("deposit underpriced!")
@@ -127,7 +234,7 @@ describe("Special Token", function () {
       const _token_contract_address = amm_token.target;
 
       //  Starting price
-      const _initial_price = new BN(await amm_token.initial_price());
+      const _initial_price = new BN(await amm_token.INITIAL_PRICE());
       expect(_initial_price).to.be.equal(ETH(1))
 
       // No one bought just yet
@@ -161,7 +268,7 @@ describe("Special Token", function () {
       );
       const _token_contract_address = amm_token.target;
 
-      const _initial_price = new BN(await amm_token.initial_price());
+      const _initial_price = new BN(await amm_token.INITIAL_PRICE());
 
       const _expected_tokens_to_mint = parseEther("1");
       const _expected_reserve_balance = new BN(parseEther("1"));
@@ -179,29 +286,6 @@ describe("Special Token", function () {
           _expected_tokens_to_mint.toString(),
         )
     });
-
-    it("should increase the price with each token sold", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
-      );
-      const _token_contract_address = amm_token.target;
-
-      const _initial_price = new BN(await amm_token.initial_price());
-
-      const _price_slope = new BN(await amm_token.price_slope())
-
-
-      // the very first token 1 eth
-      // second token 3 eth (1+2)
-      // third token 6 eth (1+2+3)
-      // forth token 10 eth (1 + 2 + 3 + 4)
-      const _get_current_price = await amm_token.current_buy_price(ETH(10).toString());
-      // expect(_get_current_price).to.be.equal(ETH(4))
-
-      // TODO continue testing
-
-    })
-
   });
 
   describe("Sell", function () {
