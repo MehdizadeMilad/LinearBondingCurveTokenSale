@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.19;
+pragma solidity 0.8.7;
 
 contract LinearBundingCurve {
     /** ------------------------------------ State variables ------------------------------------ */
@@ -7,6 +7,9 @@ contract LinearBundingCurve {
     uint256 public constant INITIAL_PRICE = 1 ether; // The initial price of tokens in ETH (e.g., 0.001 ETH)
     uint256 public constant INITIAL_SUPPLY = 0; // The initial supply of tokens set to 0.
     uint256 public constant PRICE_SLOPE = 1 ether; // The price increase per token sold - fixed at 1 ether.
+
+    uint256 private constant DECIMAL = 1000; // 3 fixed-points after the decimal
+    uint256 private constant SCALE = 1e18;
 
     /** ------------------------------------ Constructor ------------------------------------ */
     constructor() {}
@@ -26,16 +29,13 @@ contract LinearBundingCurve {
         uint256 currentTokenSupplyInWei,
         uint256 newTokenAmountToBuy
     ) internal pure returns (uint256 finalCost) {
-        uint256 pip = 1000; // 3 fixed-points after the decimal
-        uint256 scale = 1e18;
+        uint256 _tokenSupplyInEther = currentTokenSupplyInWei / SCALE;
 
-        uint256 _tokenSupplyInEther = currentTokenSupplyInWei / scale;
-
-        uint256 _a = ((newTokenAmountToBuy * pip) / 2);
+        uint256 _a = ((newTokenAmountToBuy * DECIMAL) / 2);
         uint256 _b = (2 * _tokenSupplyInEther);
         uint256 _c = (newTokenAmountToBuy + 1);
 
-        finalCost = ((_a * (_b + _c)) / pip) * scale;
+        finalCost = ((_a * (_b + _c)) / DECIMAL) * SCALE;
     }
 
     /**
@@ -71,10 +71,8 @@ contract LinearBundingCurve {
         uint256 currentTokenSupplyInWei,
         uint256 tokenAmountToSellInWei
     ) internal pure returns (uint256 ethReturnValue) {
-        uint256 scale = 1e18;
-
-        uint256 _amountToSell = tokenAmountToSellInWei / scale;
-        uint256 _currentSupply = currentTokenSupplyInWei / scale;
+        uint256 _amountToSell = tokenAmountToSellInWei / SCALE;
+        uint256 _currentSupply = currentTokenSupplyInWei / SCALE;
 
         uint256 _newTokenSupplyAfterTheSale = _currentSupply - _amountToSell;
 

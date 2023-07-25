@@ -16,8 +16,7 @@ MVP:
     [+] Token Standard
     [+] Purchase and Minting
     [+] Selling and Burning
-    [.] Testing
-    [.] Refactor
+    [+] Testing
 
 TODO for V1:
 
@@ -29,6 +28,9 @@ TODO for V1:
 
     [x] make the BUY scalable - currently limited to 14k token at most
         it requires an advanced math formula to find the root (sqrt, etc.) to make it scalable
+
+    [X] Uncovered scenario in tests:
+        AMMToken.sol Line:149 - requires mocking
 
 ### Notation:
 
