@@ -467,5 +467,30 @@ describe("Special Token", function () {
           ETH(1).toString() // 1 Token
         )).to.be.revertedWith("ERC1363: approve a non contract address");
     })
+
+    it("should prevent selling 0 token", async () => {
+
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
+      );
+
+      const _buyerEthBalanceBeforePurchase = await getEthBalanceOf(otherAccount.address)
+
+      // Buy 1 token
+      await otherAccount.sendTransaction({ to: ammContractAddress, value: ETH(1).toString() });
+
+      await expect(
+        ammToken.connect(otherAccount).transferAndCall(
+          ammContractAddress,
+          0
+        )).to.revertedWith("can not sell 0 token")
+
+      await expect(
+        ammToken.connect(otherAccount).approveAndCall(
+          ammContractAddress,
+          0
+        )).to.revertedWith("can not sell 0 token")
+
+    })
   });
 });

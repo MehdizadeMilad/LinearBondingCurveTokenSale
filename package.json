@@ -8,7 +8,7 @@
     "solhint": "solhint ./contracts/**/*.sol"
   },
   "keywords": [
-    "bundingcurve",
+    "Bondingcurve",
     "solidity",
     "ethereum",
     "smart",
@@ -19,11 +19,11 @@
   "author": "Milad (https://github.com/MehdizadeMilad)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/MehdizadeMilad/LinearBundingCurveTokenSale.git"
+    "url": "https://github.com/MehdizadeMilad/LinearBondingCurveTokenSale.git"
   },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/MehdizadeMilad/LinearBundingCurveTokenSale/issues"
+    "url": "https://github.com/MehdizadeMilad/LinearBondingCurveTokenSale/issues"
   },
   "dependencies": {
     "erc-payable-token": "^4.9.2",

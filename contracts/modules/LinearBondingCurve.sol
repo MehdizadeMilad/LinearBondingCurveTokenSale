@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.7;
 
-contract LinearBundingCurve {
+import "hardhat/console.sol";
+
+contract LinearBondingCurve {
     /** ------------------------------------ State variables ------------------------------------ */
 
     uint256 public constant INITIAL_PRICE = 1 ether; // The initial price of tokens in ETH (e.g., 0.001 ETH)
     uint256 public constant INITIAL_SUPPLY = 0; // The initial supply of tokens set to 0.
     uint256 public constant PRICE_SLOPE = 1 ether; // The price increase per token sold - fixed at 1 ether.
 
-    uint256 private constant DECIMAL = 1000; // 3 fixed-points after the decimal
+    uint256 private constant DECIMAL = 1000; // 3 fixed decimal points
     uint256 private constant SCALE = 1e18;
 
     /** ------------------------------------ Constructor ------------------------------------ */
@@ -18,7 +20,7 @@ contract LinearBundingCurve {
 
     /**
      * Calculate how much does it cost in ETH to buy a certain amount of token
-     *  the formula to calculate it: Linear bunding curve  y = x
+     *  the formula to calculate it: Linear Bonding curve  y = x
      *      ((new_token_amount_to_buy / 2) * (2 * _current_token_supply + new_token_amount_to_buy + 1))
      * @param currentTokenSupplyInWei totalSupply of the token
      * @param newTokenAmountToBuy the amount of new token to mint
@@ -44,7 +46,7 @@ contract LinearBundingCurve {
      * @param depositedEthAmount the amount of deposited ETH
      *
      * @notice this implementation is not scalable and can only be used to buy at most 14k token.
-     * @custom:todo Replace with an advanced math formula to make it scalable
+     * @custom:todo Replace it with a scalable advanced math formula
      *
      * @return tokenCount the amount of token that can be bought with the {depositedEthAmount} ETH
      */

@@ -10,14 +10,14 @@ import {IERC1363Spender} from "erc-payable-token/contracts/token/ERC1363/IERC136
 
 import {ICustomErrors} from "./interfaces/ICustomErrors.sol";
 import {IEvents} from "./interfaces/IEvents.sol";
-import {LinearBundingCurve} from "./modules/LinearBundingCurve.sol";
+import {LinearBondingCurve} from "./modules/LinearBondingCurve.sol";
 
 import {PreventFrontRunners} from "./modules/PreventFrontRunners.sol";
 
 contract AMMToken is
     Ownable,
     ERC1363,
-    LinearBundingCurve,
+    LinearBondingCurve,
     PreventFrontRunners,
     IERC1363Receiver,
     IERC1363Spender,
@@ -39,7 +39,7 @@ contract AMMToken is
     /** ------------------------------------ Administration Functions ------------------------------------ */
 
     /**
-     * an experimental method to prevent frunt-runners - by setting a cap for gas price
+     * an experimental method to prevent front-runners - by setting a cap for gas price
      *
      * @notice risk disclaimer: at the period of network congestion, tx's might not go through
      * @notice  and requires the admin to increase the gas price limit.
@@ -100,6 +100,7 @@ contract AMMToken is
         external
         override
         isNotFractionOfToken(amount)
+        prevent0TokenSale(amount)
         onlyThisContractIsReceiver
         returns (bytes4)
     {
@@ -119,6 +120,7 @@ contract AMMToken is
         external
         override
         isNotFractionOfToken(amount)
+        prevent0TokenSale(amount)
         onlyThisContractIsReceiver
         returns (bytes4)
     {
@@ -180,6 +182,11 @@ contract AMMToken is
      */
     modifier isNotFractionOfToken(uint256 amount) {
         enforceNotFraction(amount);
+        _;
+    }
+
+    modifier prevent0TokenSale(uint256 amount) {
+        require(amount > 0, "can not sell 0 token");
         _;
     }
 

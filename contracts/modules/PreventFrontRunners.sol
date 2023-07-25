@@ -15,7 +15,7 @@ contract PreventFrontRunners {
     /** ------------------------------------ External functions ------------------------------------ */
 
     /**
-     * try to mitigate front-running with an explicit cap on {maxGasPrice} traders are allowed to offer.
+     * try to mitigate front-running with an explicit cap on {maxGasPrice} traders are allowed to offer gas price.
      * @param gasPrice the cap for the normal gas price
      */
     function setMaxGasPrice(uint256 gasPrice) internal {
