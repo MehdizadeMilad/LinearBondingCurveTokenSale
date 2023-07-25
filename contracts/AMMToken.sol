@@ -26,7 +26,7 @@ contract AMMToken is
 {
     /** ------------------------------------ State variables ------------------------------------ */
 
-    uint256 public reserve_balance = 0; // Total ETH received during the token sale
+    uint256 public reserveBalance = 0; // Total ETH received during the token sale
 
     /** ------------------------------------ Constructor ------------------------------------ */
     constructor()
@@ -36,40 +36,53 @@ contract AMMToken is
         ERC20("Mock Project Token", "MPT")
     {}
 
+    /** ------------------------------------ Administration Functions ------------------------------------ */
+
+    /**
+     * an experimental method to prevent frunt-runners - by setting a cap for gas price
+     *
+     * @notice risk disclaimer: at the period of network congestion, tx's might not go through
+     * @notice  and requires the admin to increase the gas price limit.
+     * @param gasPrice the cap allowed for the gas price
+     */
+    function setMaxGasPriceAllowed(uint256 gasPrice) external onlyOwner {
+        setMaxGasPrice(gasPrice);
+    }
+
     /** ------------------------------------ External Functions ------------------------------------ */
 
     /**
      * Buy/Mint Project Token with ETH
      */
     receive() external payable {
-        enforce_normal_gas_price();
+        enforceNormalGasPrice();
 
-        uint256 _deposit_amount = msg.value;
-        require(_deposit_amount > 0, "deposit amount must be > 0!");
-        enforceNotFraction(_deposit_amount);
+        uint256 _depositAmount = msg.value;
+        require(_depositAmount > 0, "deposit amount must be > 0!");
+        enforceNotFraction(_depositAmount);
 
-        uint256 _current_total_supply = totalSupply();
+        uint256 _currentTotalSupply = totalSupply();
 
-        uint256 _count_of_token_to_buy = how_many_token_eth_can_buy(
+        uint256 _countOfTokenToBuy = howManyTokenEthCanBuy(
             totalSupply(),
-            _deposit_amount
+            _depositAmount
         );
 
-        uint256 _current_buy_price = token_to_eth_buy(
+        uint256 _currentBuyPrice = tokenToEthBuy(
             totalSupply(),
-            _count_of_token_to_buy
+            _countOfTokenToBuy
         );
 
-        uint256 tokensToMint = _count_of_token_to_buy * 1e18;
+        uint256 tokensToMint = _countOfTokenToBuy * 1e18;
 
-        reserve_balance += _current_buy_price;
+        reserveBalance += _currentBuyPrice;
 
         emit Minted(
             msg.sender,
-            _deposit_amount,
+            _depositAmount,
             tokensToMint,
-            reserve_balance,
-            _current_total_supply + tokensToMint
+            reserveBalance,
+            _currentTotalSupply + tokensToMint
         );
         // Mint and transfer the tokens to the buyer
         _mint(msg.sender, tokensToMint);
@@ -122,33 +135,33 @@ contract AMMToken is
         uint256 amount,
         bytes calldata data
     ) private {
-        uint256 _eth_to_return = token_to_eth_sell(
+        uint256 _ethToReturn = tokenToEthSell(
             totalSupply(),
             amount // in WEI
         );
 
-        reserve_balance -= _eth_to_return;
+        reserveBalance -= _ethToReturn;
 
-        emit Burned(amount, _eth_to_return);
+        emit Burned(amount, _ethToReturn);
 
         _burn(address(this), amount);
 
-        (bool success, ) = spender.call{value: _eth_to_return}("");
-        require(success, "Failed to send ETH back to the seller"); //TODO try to cover this in test
+        (bool success, ) = spender.call{value: _ethToReturn}("");
+        require(success, "Failed to send ETH back to the seller");
     }
 
     /** ------------------------------------ External View Helper Functions ------------------------------------ */
 
-    function required_eth_to_buy_token(
-        uint256 _token_to_buy
+    function requiredEthToBuyToken(
+        uint256 tokenToBuy
     ) external view returns (uint256) {
-        return token_to_eth_buy(totalSupply(), _token_to_buy);
+        return tokenToEthBuy(totalSupply(), tokenToBuy);
     }
 
-    function amount_of_token_eth_buys(
-        uint256 _final_cost
+    function amountOfTokenEthCanBuy(
+        uint256 finalCost
     ) external view returns (uint256) {
-        return how_many_token_eth_can_buy(totalSupply(), _final_cost);
+        return howManyTokenEthCanBuy(totalSupply(), finalCost);
     }
 
     /** ------------------------------------------- Modifiers -------------------------------------------------- */

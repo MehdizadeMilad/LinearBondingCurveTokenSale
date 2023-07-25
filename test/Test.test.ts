@@ -20,43 +20,45 @@ describe("Special Token", function () {
   // We define a fixture to reuse the same setup in every test.
   // We use loadFixture to run this setup once, snapshot that state,
   // and reset Hardhat Network to that snapshot in every test.
-  async function initialize_amm_token() {
+  async function initializeAmmToken() {
     // Contracts are deployed using the first signer/account by default
     const [owner, otherAccount, randomAccount] = await ethers.getSigners();
 
     const AMMToken = await ethers.getContractFactory("AMMToken");
-    const amm_token = await AMMToken.deploy();
+    const ammToken = await AMMToken.deploy();
 
-    return { AMMToken, amm_token, owner, otherAccount, randomAccount };
+    const ammContractAddress = ammToken.target;
+
+    return { AMMToken, ammToken, ammContractAddress, owner, otherAccount, randomAccount };
   }
 
   /** ------------------------------------ Helper functions  ------------------------------------ */
-  const get_eth_balance_of = async (_address: AddressLike) => (await ethers.provider.getBalance(_address))
+  const getEthBalanceOf = async (_address: AddressLike) => (await ethers.provider.getBalance(_address))
   const ETH = (_n: String | Number) => new BN(parseEther(_n.toString()));
   /** ------------------------------------ /Helper functions ----------------------------------- */
 
 
   describe("Init", function () {
     it("Should initialize with 0 total supply", async () => {
-      const { amm_token } = await loadFixture(initialize_amm_token);
+      const { ammToken } = await loadFixture(initializeAmmToken);
 
-      expect(await amm_token.totalSupply()).to.equal(0);
+      expect(await ammToken.totalSupply()).to.equal(0);
     });
 
     it("Should set the right owner", async () => {
-      const { amm_token, owner, otherAccount } = await loadFixture(initialize_amm_token);
+      const { ammToken, owner, otherAccount } = await loadFixture(initializeAmmToken);
 
-      expect(await amm_token.owner()).to.equal(owner.address);
-      expect(await amm_token.owner()).to.not.equal(otherAccount.address);
+      expect(await ammToken.owner()).to.equal(owner.address);
+      expect(await ammToken.owner()).to.not.equal(otherAccount.address);
     });
 
     it("should prevent high gas prices [default is 200 GWEI - Experimental]", async () => {
 
-      const { amm_token, owner, otherAccount } = await loadFixture(initialize_amm_token);
+      const { ammContractAddress, otherAccount } = await loadFixture(initializeAmmToken);
 
       await expect(
         otherAccount.sendTransaction({
-          to: amm_token.target,
+          to: ammContractAddress,
           value: parseEther("1"),
           gasPrice: parseUnits("201", "gwei"),
         })
@@ -66,24 +68,24 @@ describe("Special Token", function () {
 
     it("should only allow the admin to change the gas price cap", async () => {
 
-      const { amm_token, owner, otherAccount } = await loadFixture(initialize_amm_token);
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(initializeAmmToken);
 
       await expect(
-        amm_token.connect(otherAccount).set_max_gas_price(parseUnits("800", "gwei"))
-      ).to.be.rejectedWith("Only the owner can change max gas price!");
+        ammToken.connect(otherAccount).setMaxGasPriceAllowed(parseUnits("800", "gwei"))
+      ).to.be.rejectedWith("Ownable: caller is not the owner");
 
       // Change the cap to 200 GWEI from the default 400 GWEI
-      await amm_token.set_max_gas_price(parseUnits("200", "gwei"));
+      await ammToken.setMaxGasPriceAllowed(parseUnits("200", "gwei"));
 
       await otherAccount.sendTransaction({
-        to: amm_token.target,
+        to: ammContractAddress,
         value: parseEther("1"),
         gasPrice: parseUnits("200", "gwei"),
       })
 
       await expect(
         otherAccount.sendTransaction({
-          to: amm_token.target,
+          to: ammContractAddress,
           value: parseEther("1"),
           gasPrice: parseUnits("201", "gwei"),
         })
@@ -93,20 +95,19 @@ describe("Special Token", function () {
 
   describe("Buy", function () {
     it("should reject fractions", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
 
-      const _initial_price = new BN(await amm_token.INITIAL_PRICE()).add(ETH(0.5));
-      const _token_contract_address = amm_token.target;
+      const _initialPrice = new BN(await ammToken.INITIAL_PRICE()).add(ETH(0.5));
 
       await expect(
-        otherAccount.sendTransaction({ to: _token_contract_address, value: _initial_price.toString() })
+        otherAccount.sendTransaction({ to: ammContractAddress, value: _initialPrice.toString() })
       ).to.be.rejectedWith("Fractions are not supported yet!")
 
       await expect(
         otherAccount.sendTransaction({
-          to: _token_contract_address,
+          to: ammContractAddress,
           value: ETH(1.5).toString()
         })
       ).to.be.revertedWith("Fractions are not supported yet!")
@@ -114,221 +115,210 @@ describe("Special Token", function () {
     })
 
     it("should increase the price of tokens linearly respecting n(n+1)/2 formula", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken } = await loadFixture(
+        initializeAmmToken
       );
 
       // the first token costs 1 ETH
-      expect(await amm_token.required_eth_to_buy_token(1)).to.be.equal(ETH(1))
+      expect(await ammToken.requiredEthToBuyToken(1)).to.be.equal(ETH(1))
 
       // ∑n=110n = (1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10) = 55 
-      expect(await amm_token.required_eth_to_buy_token(10)).to.be.equal(ETH(55))
-      expect(await amm_token.required_eth_to_buy_token(20)).to.be.equal(ETH(210))
+      expect(await ammToken.requiredEthToBuyToken(10)).to.be.equal(ETH(55))
+      expect(await ammToken.requiredEthToBuyToken(20)).to.be.equal(ETH(210))
 
       expect(
-        await amm_token.amount_of_token_eth_buys(
-          await amm_token.required_eth_to_buy_token(1)
+        await ammToken.amountOfTokenEthCanBuy(
+          await ammToken.requiredEthToBuyToken(1)
         )).to.be.equal(1)
 
       expect(
-        await amm_token.amount_of_token_eth_buys(
-          await amm_token.required_eth_to_buy_token(20)
+        await ammToken.amountOfTokenEthCanBuy(
+          await ammToken.requiredEthToBuyToken(20)
         )).to.be.equal(20)
 
       expect(
-        await amm_token.amount_of_token_eth_buys(
-          await amm_token.required_eth_to_buy_token(20)
+        await ammToken.amountOfTokenEthCanBuy(
+          await ammToken.requiredEthToBuyToken(20)
         )).to.be.equal(20)
     })
 
     it("should increase the price with each token sold", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
 
-      const _token_contract_address = amm_token.target;
-
       // at the beginning 1 token costs 1 ETH
-      expect(await amm_token.required_eth_to_buy_token(1)).to.be.equal(ETH(1))
+      expect(await ammToken.requiredEthToBuyToken(1)).to.be.equal(ETH(1))
       //  OR
       expect(
-        await amm_token.amount_of_token_eth_buys(
-          await amm_token.required_eth_to_buy_token(1)
+        await ammToken.amountOfTokenEthCanBuy(
+          await ammToken.requiredEthToBuyToken(1)
         )).to.be.equal(1)
 
       // 2 tokens costs 3 ETH
-      expect(await amm_token.required_eth_to_buy_token(2)).to.be.equal(ETH(3))
+      expect(await ammToken.requiredEthToBuyToken(2)).to.be.equal(ETH(3))
 
       // ∑n=110n = (1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10) = 55 
-      expect(await amm_token.required_eth_to_buy_token(10)).to.be.equal(ETH(55))
+      expect(await ammToken.requiredEthToBuyToken(10)).to.be.equal(ETH(55))
 
-      const _required_eth_to_buy_20_token = await amm_token.required_eth_to_buy_token(20);
-      expect(_required_eth_to_buy_20_token).to.be.equal(ETH(210))
+      const _requiredEthToBuy20Token = await ammToken.requiredEthToBuyToken(20);
+      expect(_requiredEthToBuy20Token).to.be.equal(ETH(210))
 
-      const _amount_of_token_eth_can_buy = await amm_token.amount_of_token_eth_buys(_required_eth_to_buy_20_token)
+      const _amount_of_token_eth_can_buy = await ammToken.amountOfTokenEthCanBuy(_requiredEthToBuy20Token)
       expect(_amount_of_token_eth_can_buy).to.be.equal(20)
 
 
       // After actually buying 1 token
-      await otherAccount.sendTransaction({ to: _token_contract_address, value: (await amm_token.required_eth_to_buy_token(1)).toString() });
+      await otherAccount.sendTransaction({ to: ammContractAddress, value: (await ammToken.requiredEthToBuyToken(1)).toString() });
 
       // each token will now cost 2 ETH
-      const _cost_of_buying_1_token_now = await amm_token.required_eth_to_buy_token(1);
+      const _cost_of_buying_1_token_now = await ammToken.requiredEthToBuyToken(1);
       expect(_cost_of_buying_1_token_now).to.be.equal(ETH(2))
 
       // Buy 1 more token (2 in total)
       await otherAccount.sendTransaction(
         {
-          to: _token_contract_address,
+          to: ammContractAddress,
           value: (_cost_of_buying_1_token_now).toString()
         });
 
       // 2 token has been bought by {otherAccount}
-      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(2))
+      expect(await ammToken.balanceOf(otherAccount.address)).to.be.equal(ETH(2))
 
       // after the first 2 purchases, each token will cost 3 ETH
-      expect(await amm_token.required_eth_to_buy_token(1)).to.be.equal(ETH(3));
+      expect(await ammToken.requiredEthToBuyToken(1)).to.be.equal(ETH(3));
     })
 
     it("should increase token balance of the buyer", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
 
-      const _token_contract_address = amm_token.target;
 
-      expect(await get_eth_balance_of(_token_contract_address)).to.be.equal(0)
+      expect(await getEthBalanceOf(ammContractAddress)).to.be.equal(0)
 
       // After actually buying 1 token
-      await otherAccount.sendTransaction({ to: _token_contract_address, value: (await amm_token.required_eth_to_buy_token(1)).toString() });
+      await otherAccount.sendTransaction({ to: ammContractAddress, value: (await ammToken.requiredEthToBuyToken(1)).toString() });
 
       // 1 token has been bought by {otherAccount}
-      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(1))
+      expect(await ammToken.balanceOf(otherAccount.address)).to.be.equal(ETH(1))
 
-      expect(await get_eth_balance_of(_token_contract_address)).to.be.equal(ETH(1))
+      expect(await getEthBalanceOf(ammContractAddress)).to.be.equal(ETH(1))
     })
 
-    it("should increase the reserve_balance after each ETH deposit/token bought", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+    it("should increase the reserveBalance after each ETH deposit/token bought", async () => {
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
 
-      const _token_contract_address = amm_token.target;
-
       expect(
-        await amm_token.reserve_balance()
+        await ammToken.reserveBalance()
       ).to.be.equal(0)
 
       // deposit 3 ETH
-      await otherAccount.sendTransaction({ to: _token_contract_address, value: ETH(3).toString() });
+      await otherAccount.sendTransaction({ to: ammContractAddress, value: ETH(3).toString() });
 
       expect(
-        await amm_token.reserve_balance()
+        await ammToken.reserveBalance()
       ).to.be.equal(ETH(3))
     })
 
     it("should allow a whale to purchase a big amount of tokens", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
-
-      const _token_contract_address = amm_token.target;
 
       const _token_to_buy = 1_000
 
       await otherAccount.sendTransaction(
         {
-          to: _token_contract_address,
-          value: (await amm_token.required_eth_to_buy_token(_token_to_buy)).toString()
+          to: ammContractAddress,
+          value: (await ammToken.requiredEthToBuyToken(_token_to_buy)).toString()
         })
 
-      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(_token_to_buy))
+      expect(await ammToken.balanceOf(otherAccount.address)).to.be.equal(ETH(_token_to_buy))
 
       const _new_token_price = _token_to_buy + 1; // 1001
-      expect(await amm_token.required_eth_to_buy_token(1)).to.be.equal(ETH(_new_token_price));
+      expect(await ammToken.requiredEthToBuyToken(1)).to.be.equal(ETH(_new_token_price));
     })
 
     it("should revert if deposited ETH is < 1", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
-
-      const _token_contract_address = amm_token.target;
 
       await expect(
         otherAccount.sendTransaction(
-          { to: _token_contract_address }
+          { to: ammContractAddress }
         )
       ).to.be.revertedWith("deposit amount must be > 0!")
 
     })
 
     it("Should allow buying Project Token by transferring ETH", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
-      const _token_contract_address = amm_token.target;
 
       //  Starting price
-      const _initial_price = new BN(await amm_token.INITIAL_PRICE());
-      expect(_initial_price).to.be.equal(ETH(1))
+      const _initialPrice = new BN(await ammToken.INITIAL_PRICE());
+      expect(_initialPrice).to.be.equal(ETH(1))
 
       // No one bought just yet
-      expect(await get_eth_balance_of(_token_contract_address)).to.equal(0);
+      expect(await getEthBalanceOf(ammContractAddress)).to.equal(0);
 
       // check buyer's balance before the purchase
-      const _eoa_pre_buy_balance = await get_eth_balance_of(otherAccount.address)
+      const _eoa_pre_buy_balance = await getEthBalanceOf(otherAccount.address)
 
       // Buy 1 token
-      await otherAccount.sendTransaction({ to: _token_contract_address, value: ETH(1).toString() });
+      await otherAccount.sendTransaction({ to: ammContractAddress, value: ETH(1).toString() });
 
       //  Validate if the buyer's ETH balance is deducted
       expect(
-        await get_eth_balance_of(otherAccount.address)
+        await getEthBalanceOf(otherAccount.address)
       ).to.be.lessThan(
         new BN(_eoa_pre_buy_balance).sub(ETH(1)) // 1 ETH + fee
       )
 
       // validate if the buyer's Token balance is increased
       expect(
-        await amm_token.balanceOf(otherAccount.address)
+        await ammToken.balanceOf(otherAccount.address)
       ).to.be.equal(parseEther("1"))
 
       // Confirm Token Contract ETH Balance (Reserve currency) is increased
-      expect(await get_eth_balance_of(_token_contract_address)).to.equal(ETH(1));
+      expect(await getEthBalanceOf(ammContractAddress)).to.equal(ETH(1));
     });
 
     it("Should emit Minted event at purchase", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
-      const _token_contract_address = amm_token.target;
 
-      const _initial_price = new BN(await amm_token.INITIAL_PRICE());
+      const _initialPrice = new BN(await ammToken.INITIAL_PRICE());
 
-      const _expected_tokens_to_mint = parseEther("1");
-      const _expected_reserve_balance = new BN(parseEther("1"));
+      const _expectedTokensToMint = parseEther("1");
+      const _expectedReserveBalance = new BN(parseEther("1"));
 
       // Buy 1 token
       await expect(
-        otherAccount.sendTransaction({ to: _token_contract_address, value: _initial_price.toString() })
-      ).to.emit(amm_token, "Minted")
+        otherAccount.sendTransaction({ to: ammContractAddress, value: _initialPrice.toString() })
+      ).to.emit(ammToken, "Minted")
         .withArgs
         (
           otherAccount.address,
           ETH(1).toString(),
-          _expected_tokens_to_mint.toString(),
-          _expected_reserve_balance.toString(),
-          _expected_tokens_to_mint.toString(),
+          _expectedTokensToMint.toString(),
+          _expectedReserveBalance.toString(),
+          _expectedTokensToMint.toString(),
         )
     });
 
     it("should revert if onTransferReceived is called by anyone except the AMM contract", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
 
-      await expect(amm_token.onTransferReceived(
+      await expect(ammToken.onTransferReceived(
         otherAccount.address,
         otherAccount.address,
         ETH(1).toString(),
@@ -340,95 +330,93 @@ describe("Special Token", function () {
   describe("Sell", function () {
 
     it("should emit Burned event", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
-      const _token_contract_address = amm_token.target;
 
       // Buy 1 token
-      await otherAccount.sendTransaction({ to: _token_contract_address, value: ETH(1).toString() });
+      await otherAccount.sendTransaction({ to: ammContractAddress, value: ETH(1).toString() });
 
-      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(1))
+      expect(await ammToken.balanceOf(otherAccount.address)).to.be.equal(ETH(1))
 
       await expect(
-        amm_token.connect(otherAccount).transferAndCall(
-          _token_contract_address,
+        ammToken.connect(otherAccount).transferAndCall(
+          ammContractAddress,
           ETH(1).toString() // 1 Token
-        )).to.emit(amm_token, "Burned").withArgs(ETH(1).toString(), ETH(1).toString())
+        )).to.emit(ammToken, "Burned").withArgs(ETH(1).toString(), ETH(1).toString())
     })
 
     it("should prevent selling a fraction of a token", async () => {
-      const { amm_token, otherAccount, randomAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
-      const _token_contract_address = amm_token.target;
 
-      const _required_eth_to_buy_20_token = await amm_token.required_eth_to_buy_token(20);
+      const _requiredEthToBuy20Token = await ammToken.requiredEthToBuyToken(20);
 
       // Buy 20 token
-      await otherAccount.sendTransaction({ to: _token_contract_address, value: _required_eth_to_buy_20_token });
-      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(20))
+      await otherAccount.sendTransaction({ to: ammContractAddress, value: _requiredEthToBuy20Token });
+      expect(await ammToken.balanceOf(otherAccount.address)).to.be.equal(ETH(20))
 
       // Sell a fraction of tokens using approve
       await expect(
-        amm_token.connect(otherAccount).approveAndCall(
-          _token_contract_address,
+        ammToken.connect(otherAccount).approveAndCall(
+          ammContractAddress,
           ETH(20).sub(new BN(1)).toString() // 19.99 Token
         )).to.revertedWith("Fractions are not supported yet!")
 
       // Sell a fraction of tokens using transfer
       await expect(
-        amm_token.connect(otherAccount).transferAndCall(
-          _token_contract_address,
+        ammToken.connect(otherAccount).transferAndCall(
+          ammContractAddress,
           ETH(20).sub(new BN(1)).toString() // 19.99 Token
         )).to.revertedWith("Fractions are not supported yet!")
     })
 
     it("should refund ETH by transferring Token back to the smart contract", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
-      const _token_contract_address = amm_token.target;
+      const ammContractAddress = ammToken.target;
 
-      const _count_of_token_to_purchase_raw = 10;
-      const _required_eth_to_buy_tokens_in_wei = await amm_token.required_eth_to_buy_token(
-        _count_of_token_to_purchase_raw
+      const _countOfTokenToPurchaseRaw = 10;
+      const _requiredEthToBuyTokensInWei = await ammToken.requiredEthToBuyToken(
+        _countOfTokenToPurchaseRaw
       );
 
       // Buy 10 token
       await otherAccount.sendTransaction({
-        to: _token_contract_address,
-        value: (_required_eth_to_buy_tokens_in_wei).toString()
+        to: ammContractAddress,
+        value: (_requiredEthToBuyTokensInWei).toString()
       });
 
       // Confirm token purchase
-      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(10))
-      expect(await amm_token.reserve_balance()).to.be.equal(_required_eth_to_buy_tokens_in_wei)
+      expect(await ammToken.balanceOf(otherAccount.address)).to.be.equal(ETH(10))
+      expect(await ammToken.reserveBalance()).to.be.equal(_requiredEthToBuyTokensInWei)
 
       // Sell all tokens
       await expect(
-        amm_token.connect(otherAccount).transferAndCall(
-          _token_contract_address,
-          ETH(_count_of_token_to_purchase_raw).toString()
-        )).to.emit(amm_token, "Burned")
+        ammToken.connect(otherAccount).transferAndCall(
+          ammContractAddress,
+          ETH(_countOfTokenToPurchaseRaw).toString()
+        )).to.emit(ammToken, "Burned")
         .withArgs(
-          ETH(_count_of_token_to_purchase_raw).toString(),
-          _required_eth_to_buy_tokens_in_wei
+          ETH(_countOfTokenToPurchaseRaw).toString(),
+          _requiredEthToBuyTokensInWei
         )
 
       // confirm token sale
-      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(0)
-      expect(await amm_token.totalSupply()).to.be.equal(0)
-      expect(await amm_token.reserve_balance()).to.be.equal(0)
-      expect(await get_eth_balance_of(_token_contract_address)).to.be.equal(0)
+      expect(await ammToken.balanceOf(otherAccount.address)).to.be.equal(0)
+      expect(await ammToken.totalSupply()).to.be.equal(0)
+      expect(await ammToken.reserveBalance()).to.be.equal(0)
+      expect(await getEthBalanceOf(ammContractAddress)).to.be.equal(0)
     })
 
     it("should revert if onApprovalReceived is called by anyone except the Project Token contract", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
 
-      await expect(amm_token.onApprovalReceived(
+      await expect(ammToken.onApprovalReceived(
         otherAccount.address,
         ETH(1).toString(),
         "0x00"
@@ -436,46 +424,45 @@ describe("Special Token", function () {
     })
 
     it("should sell by approve", async () => {
-      const { amm_token, otherAccount, randomAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, ammContractAddress, otherAccount } = await loadFixture(
+        initializeAmmToken
       );
-      const _token_contract_address = amm_token.target;
 
-      const _buyer_eth_balance_before_purchase = await get_eth_balance_of(otherAccount.address)
+      const _buyerEthBalanceBeforePurchase = await getEthBalanceOf(otherAccount.address)
 
       // Buy 1 token
-      await otherAccount.sendTransaction({ to: _token_contract_address, value: ETH(1).toString() });
+      await otherAccount.sendTransaction({ to: ammContractAddress, value: ETH(1).toString() });
 
-      const _buyer_eth_balance_after_purchase = await get_eth_balance_of(otherAccount.address)
-      expect(_buyer_eth_balance_before_purchase).to.be.greaterThan(_buyer_eth_balance_after_purchase)
+      const _buyerEthBalanceAfterPurchase = await getEthBalanceOf(otherAccount.address)
+      expect(_buyerEthBalanceBeforePurchase).to.be.greaterThan(_buyerEthBalanceAfterPurchase)
 
 
-      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(1))
+      expect(await ammToken.balanceOf(otherAccount.address)).to.be.equal(ETH(1))
 
       // Approve spender to transfer tokens and then execute a callback on `spender`.
       await expect(
-        amm_token.connect(otherAccount).approveAndCall(
-          _token_contract_address,
+        ammToken.connect(otherAccount).approveAndCall(
+          ammContractAddress,
           ETH(1).toString() // 1 Token
-        )).to.emit(amm_token, "Burned").withArgs(ETH(1).toString(), ETH(1).toString())
+        )).to.emit(ammToken, "Burned").withArgs(ETH(1).toString(), ETH(1).toString())
 
 
       // confirm token sale
-      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(0)
-      expect(await amm_token.totalSupply()).to.be.equal(0)
-      expect(await amm_token.reserve_balance()).to.be.equal(0)
-      expect(await get_eth_balance_of(_token_contract_address)).to.be.equal(0)
-      expect(await get_eth_balance_of(otherAccount.address)).to.be.gt(_buyer_eth_balance_after_purchase)
+      expect(await ammToken.balanceOf(otherAccount.address)).to.be.equal(0)
+      expect(await ammToken.totalSupply()).to.be.equal(0)
+      expect(await ammToken.reserveBalance()).to.be.equal(0)
+      expect(await getEthBalanceOf(ammContractAddress)).to.be.equal(0)
+      expect(await getEthBalanceOf(otherAccount.address)).to.be.gt(_buyerEthBalanceAfterPurchase)
     })
 
     it("should only allow approving the Project Token contract only", async () => {
 
-      const { amm_token, otherAccount, randomAccount } = await loadFixture(
-        initialize_amm_token
+      const { ammToken, otherAccount, randomAccount } = await loadFixture(
+        initializeAmmToken
       );
 
       await expect(
-        amm_token.connect(otherAccount).approveAndCall(
+        ammToken.connect(otherAccount).approveAndCall(
           randomAccount.address,
           ETH(1).toString() // 1 Token
         )).to.be.revertedWith("ERC1363: approve a non contract address");
