@@ -14,8 +14,6 @@ import {LinearBundingCurve} from "./modules/LinearBundingCurve.sol";
 
 import {PreventFrontRunners} from "./modules/PreventFrontRunners.sol";
 
-// import "hardhat/console.sol";
-
 contract AMMToken is
     Ownable,
     ERC1363,
@@ -28,7 +26,7 @@ contract AMMToken is
 {
     /** ------------------------------------ State variables ------------------------------------ */
 
-    uint256 reserve_balance = 0; // Total ETH received during the token sale
+    uint256 public reserve_balance = 0; // Total ETH received during the token sale
 
     /** ------------------------------------ Constructor ------------------------------------ */
     constructor()
@@ -48,6 +46,7 @@ contract AMMToken is
 
         uint256 _deposit_amount = msg.value;
         require(_deposit_amount > 0, "deposit amount must be > 0!");
+        enforceNotFraction(_deposit_amount);
 
         uint256 _current_total_supply = totalSupply();
 
@@ -56,12 +55,10 @@ contract AMMToken is
             _deposit_amount
         );
 
-        uint256 _current_buy_price = token_to_ETH(
+        uint256 _current_buy_price = token_to_eth_buy(
             totalSupply(),
             _count_of_token_to_buy
         );
-
-        require(_deposit_amount >= _current_buy_price, "deposit underpriced!");
 
         uint256 tokensToMint = _count_of_token_to_buy * 1e18;
 
@@ -83,27 +80,17 @@ contract AMMToken is
      */
     function onTransferReceived(
         address spender,
-        address sender,
+        address sender, //TODO what is the use of this address?
         uint256 amount,
         bytes calldata data
-    ) external override returns (bytes4) {
-        require(
-            msg.sender == address(this),
-            "Only this contract can receive tokens"
-        );
-
-        uint256 _current_sell_price = calculate_sell_price();
-        uint256 eth_to_return = (amount / 1e18) * (_current_sell_price);
-
-        _burn(address(this), amount);
-
-        reserve_balance -= eth_to_return;
-
-        emit Burned(amount, eth_to_return);
-
-        (bool success, ) = spender.call{value: eth_to_return}("");
-        require(success, "Failed to send ETH back to the seller");
-
+    )
+        external
+        override
+        isNotFractionOfToken(amount)
+        onlyThisContractIsReceiver
+        returns (bytes4)
+    {
+        processSale(spender, sender, amount, data);
         return IERC1363Receiver.onTransferReceived.selector;
     }
 
@@ -115,8 +102,39 @@ contract AMMToken is
         address sender,
         uint256 amount,
         bytes calldata data
-    ) external override returns (bytes4) {
-        revert NotImplemented();
+    )
+        external
+        override
+        isNotFractionOfToken(amount)
+        onlyThisContractIsReceiver
+        returns (bytes4)
+    {
+        transferFrom(sender, address(this), amount);
+
+        processSale(sender, address(0), amount, data);
+
+        return IERC1363Spender.onApprovalReceived.selector;
+    }
+
+    function processSale(
+        address spender,
+        address sender, //TODO what is the use of this address?
+        uint256 amount,
+        bytes calldata data
+    ) private {
+        uint256 _eth_to_return = token_to_eth_sell(
+            totalSupply(),
+            amount // in WEI
+        );
+
+        reserve_balance -= _eth_to_return;
+
+        emit Burned(amount, _eth_to_return);
+
+        _burn(address(this), amount);
+
+        (bool success, ) = spender.call{value: _eth_to_return}("");
+        require(success, "Failed to send ETH back to the seller"); //TODO try to cover this in test
     }
 
     /** ------------------------------------ External View Helper Functions ------------------------------------ */
@@ -124,12 +142,39 @@ contract AMMToken is
     function required_eth_to_buy_token(
         uint256 _token_to_buy
     ) external view returns (uint256) {
-        return token_to_ETH(totalSupply(), _token_to_buy);
+        return token_to_eth_buy(totalSupply(), _token_to_buy);
     }
 
     function amount_of_token_eth_buys(
         uint256 _final_cost
     ) external view returns (uint256) {
         return how_many_token_eth_can_buy(totalSupply(), _final_cost);
+    }
+
+    /** ------------------------------------------- Modifiers -------------------------------------------------- */
+
+    modifier onlyThisContractIsReceiver() {
+        require(
+            msg.sender == address(this),
+            "Only this contract can receive tokens"
+        );
+        _;
+    }
+
+    /**
+     * Until proper handling of decimal points are not implemented, fractions are not supported.
+     * @param amount the amount of ETH or Token in WEI
+     */
+    modifier isNotFractionOfToken(uint256 amount) {
+        enforceNotFraction(amount);
+        _;
+    }
+
+    /**
+     * Until proper handling of decimal points are not implemented, fractions are not supported.
+     * @param amount the amount of ETH or Token in WEI
+     */
+    function enforceNotFraction(uint256 amount) private pure {
+        require(amount % 1 ether == 0, "Fractions are not supported yet!");
     }
 }

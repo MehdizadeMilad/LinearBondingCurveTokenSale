@@ -15,18 +15,20 @@ MVP:
 
     [+] Token Standard
     [+] Purchase and Minting
-    [] Selling and Burning
+    [+] Selling and Burning
     [.] Testing
+    [.] Refactor
 
 TODO for V1:
 
     [x] make the smart contract upgradeable
     [x] use Slither to detect known vulnerabilities
-    [x] support Fixed point decimals
+    [x] support Fractions (Fixed point decimals)
         [x] to allow buying a fractions of a token
         [x] https://github.com/PaulRBerg/prb-math
 
     [x] make the BUY scalable - currently limited to 14k token at most
+        it requires an advanced math formula to find the root (sqrt, etc.) to make it scalable
 
 ### Notation:
 
@@ -36,8 +38,8 @@ TODO for V1:
 [x] Closed
 ```
 
-
 ### Test & Coverage report
+
 ```
 npm run test
 npm run coverage

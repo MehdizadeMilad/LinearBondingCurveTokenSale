@@ -6,13 +6,13 @@ const { BN } = require('@openzeppelin/test-helpers');
 import { expect } from "chai";
 import { ethers } from "hardhat";
 
-import { parseEther, parseUnits, AddressLike, formatEther } from "ethers";
+import { parseEther, parseUnits, AddressLike } from "ethers";
 
 
 /**  Testing: 
  * Include unit tests to verify the correctness of your contract. 
  * Tests should cover token buying and selling scenarios, 
- *  ensuring that the token amounts are calculated correctly,  //TODO identify the formula
+ *  ensuring that the token amounts are calculated correctly,
  *  and edge cases are properly handled. //TODO identify edge cases
  * */
 describe("Special Token", function () {
@@ -22,16 +22,18 @@ describe("Special Token", function () {
   // and reset Hardhat Network to that snapshot in every test.
   async function initialize_amm_token() {
     // Contracts are deployed using the first signer/account by default
-    const [owner, otherAccount] = await ethers.getSigners();
+    const [owner, otherAccount, randomAccount] = await ethers.getSigners();
 
     const AMMToken = await ethers.getContractFactory("AMMToken");
     const amm_token = await AMMToken.deploy();
 
-    return { AMMToken, amm_token, owner, otherAccount };
+    return { AMMToken, amm_token, owner, otherAccount, randomAccount };
   }
 
+  /** ------------------------------------ Helper functions  ------------------------------------ */
   const get_eth_balance_of = async (_address: AddressLike) => (await ethers.provider.getBalance(_address))
   const ETH = (_n: String | Number) => new BN(parseEther(_n.toString()));
+  /** ------------------------------------ /Helper functions ----------------------------------- */
 
 
   describe("Init", function () {
@@ -96,10 +98,19 @@ describe("Special Token", function () {
       );
 
       const _initial_price = new BN(await amm_token.INITIAL_PRICE()).add(ETH(0.5));
+      const _token_contract_address = amm_token.target;
 
       await expect(
-        otherAccount.sendTransaction({ to: amm_token.target, value: _initial_price.toString() })
-      ).to.be.rejectedWith("deposit underpriced!")
+        otherAccount.sendTransaction({ to: _token_contract_address, value: _initial_price.toString() })
+      ).to.be.rejectedWith("Fractions are not supported yet!")
+
+      await expect(
+        otherAccount.sendTransaction({
+          to: _token_contract_address,
+          value: ETH(1.5).toString()
+        })
+      ).to.be.revertedWith("Fractions are not supported yet!")
+
     })
 
     it("should increase the price of tokens linearly respecting n(n+1)/2 formula", async () => {
@@ -179,6 +190,43 @@ describe("Special Token", function () {
       expect(await amm_token.required_eth_to_buy_token(1)).to.be.equal(ETH(3));
     })
 
+    it("should increase token balance of the buyer", async () => {
+      const { amm_token, otherAccount } = await loadFixture(
+        initialize_amm_token
+      );
+
+      const _token_contract_address = amm_token.target;
+
+      expect(await get_eth_balance_of(_token_contract_address)).to.be.equal(0)
+
+      // After actually buying 1 token
+      await otherAccount.sendTransaction({ to: _token_contract_address, value: (await amm_token.required_eth_to_buy_token(1)).toString() });
+
+      // 1 token has been bought by {otherAccount}
+      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(1))
+
+      expect(await get_eth_balance_of(_token_contract_address)).to.be.equal(ETH(1))
+    })
+
+    it("should increase the reserve_balance after each ETH deposit/token bought", async () => {
+      const { amm_token, otherAccount } = await loadFixture(
+        initialize_amm_token
+      );
+
+      const _token_contract_address = amm_token.target;
+
+      expect(
+        await amm_token.reserve_balance()
+      ).to.be.equal(0)
+
+      // deposit 3 ETH
+      await otherAccount.sendTransaction({ to: _token_contract_address, value: ETH(3).toString() });
+
+      expect(
+        await amm_token.reserve_balance()
+      ).to.be.equal(ETH(3))
+    })
+
     it("should allow a whale to purchase a big amount of tokens", async () => {
       const { amm_token, otherAccount } = await loadFixture(
         initialize_amm_token
@@ -213,18 +261,6 @@ describe("Special Token", function () {
         )
       ).to.be.revertedWith("deposit amount must be > 0!")
 
-    })
-
-    it("should reject underpriced deposits", async () => {
-      const { amm_token, otherAccount } = await loadFixture(
-        initialize_amm_token
-      );
-
-      const _initial_price = new BN(await amm_token.INITIAL_PRICE());
-
-      await expect(
-        otherAccount.sendTransaction({ to: amm_token.target, value: _initial_price.sub(new BN(1)).toString() })
-      ).to.be.rejectedWith("deposit underpriced!")
     })
 
     it("Should allow buying Project Token by transferring ETH", async () => {
@@ -286,11 +322,24 @@ describe("Special Token", function () {
           _expected_tokens_to_mint.toString(),
         )
     });
+
+    it("should revert if onTransferReceived is called by anyone except the AMM contract", async () => {
+      const { amm_token, otherAccount } = await loadFixture(
+        initialize_amm_token
+      );
+
+      await expect(amm_token.onTransferReceived(
+        otherAccount.address,
+        otherAccount.address,
+        ETH(1).toString(),
+        "0x00"
+      )).to.revertedWith("Only this contract can receive tokens")
+    })
   });
 
   describe("Sell", function () {
 
-    it("should trigger onTransferReceived", async () => {
+    it("should emit Burned event", async () => {
       const { amm_token, otherAccount } = await loadFixture(
         initialize_amm_token
       );
@@ -298,17 +347,138 @@ describe("Special Token", function () {
 
       // Buy 1 token
       await otherAccount.sendTransaction({ to: _token_contract_address, value: ETH(1).toString() });
-      // confirm 1 token bought
+
       expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(1))
 
       await expect(
         amm_token.connect(otherAccount).transferAndCall(
           _token_contract_address,
-          ETH(1).toString()
+          ETH(1).toString() // 1 Token
+        )).to.emit(amm_token, "Burned").withArgs(ETH(1).toString(), ETH(1).toString())
+    })
+
+    it("should prevent selling a fraction of a token", async () => {
+      const { amm_token, otherAccount, randomAccount } = await loadFixture(
+        initialize_amm_token
+      );
+      const _token_contract_address = amm_token.target;
+
+      const _required_eth_to_buy_20_token = await amm_token.required_eth_to_buy_token(20);
+
+      // Buy 20 token
+      await otherAccount.sendTransaction({ to: _token_contract_address, value: _required_eth_to_buy_20_token });
+      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(20))
+
+      // Sell a fraction of tokens using approve
+      await expect(
+        amm_token.connect(otherAccount).approveAndCall(
+          _token_contract_address,
+          ETH(20).sub(new BN(1)).toString() // 19.99 Token
+        )).to.revertedWith("Fractions are not supported yet!")
+
+      // Sell a fraction of tokens using transfer
+      await expect(
+        amm_token.connect(otherAccount).transferAndCall(
+          _token_contract_address,
+          ETH(20).sub(new BN(1)).toString() // 19.99 Token
+        )).to.revertedWith("Fractions are not supported yet!")
+    })
+
+    it("should refund ETH by transferring Token back to the smart contract", async () => {
+      const { amm_token, otherAccount } = await loadFixture(
+        initialize_amm_token
+      );
+      const _token_contract_address = amm_token.target;
+
+      const _count_of_token_to_purchase_raw = 10;
+      const _required_eth_to_buy_tokens_in_wei = await amm_token.required_eth_to_buy_token(
+        _count_of_token_to_purchase_raw
+      );
+
+      // Buy 10 token
+      await otherAccount.sendTransaction({
+        to: _token_contract_address,
+        value: (_required_eth_to_buy_tokens_in_wei).toString()
+      });
+
+      // Confirm token purchase
+      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(10))
+      expect(await amm_token.reserve_balance()).to.be.equal(_required_eth_to_buy_tokens_in_wei)
+
+      // Sell all tokens
+      await expect(
+        amm_token.connect(otherAccount).transferAndCall(
+          _token_contract_address,
+          ETH(_count_of_token_to_purchase_raw).toString()
         )).to.emit(amm_token, "Burned")
+        .withArgs(
+          ETH(_count_of_token_to_purchase_raw).toString(),
+          _required_eth_to_buy_tokens_in_wei
+        )
 
-      // TODO continue after the price calculation is done.
+      // confirm token sale
+      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(0)
+      expect(await amm_token.totalSupply()).to.be.equal(0)
+      expect(await amm_token.reserve_balance()).to.be.equal(0)
+      expect(await get_eth_balance_of(_token_contract_address)).to.be.equal(0)
+    })
 
+    it("should revert if onApprovalReceived is called by anyone except the Project Token contract", async () => {
+      const { amm_token, otherAccount } = await loadFixture(
+        initialize_amm_token
+      );
+
+      await expect(amm_token.onApprovalReceived(
+        otherAccount.address,
+        ETH(1).toString(),
+        "0x00"
+      )).to.revertedWith("Only this contract can receive tokens")
+    })
+
+    it("should sell by approve", async () => {
+      const { amm_token, otherAccount, randomAccount } = await loadFixture(
+        initialize_amm_token
+      );
+      const _token_contract_address = amm_token.target;
+
+      const _buyer_eth_balance_before_purchase = await get_eth_balance_of(otherAccount.address)
+
+      // Buy 1 token
+      await otherAccount.sendTransaction({ to: _token_contract_address, value: ETH(1).toString() });
+
+      const _buyer_eth_balance_after_purchase = await get_eth_balance_of(otherAccount.address)
+      expect(_buyer_eth_balance_before_purchase).to.be.greaterThan(_buyer_eth_balance_after_purchase)
+
+
+      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(ETH(1))
+
+      // Approve spender to transfer tokens and then execute a callback on `spender`.
+      await expect(
+        amm_token.connect(otherAccount).approveAndCall(
+          _token_contract_address,
+          ETH(1).toString() // 1 Token
+        )).to.emit(amm_token, "Burned").withArgs(ETH(1).toString(), ETH(1).toString())
+
+
+      // confirm token sale
+      expect(await amm_token.balanceOf(otherAccount.address)).to.be.equal(0)
+      expect(await amm_token.totalSupply()).to.be.equal(0)
+      expect(await amm_token.reserve_balance()).to.be.equal(0)
+      expect(await get_eth_balance_of(_token_contract_address)).to.be.equal(0)
+      expect(await get_eth_balance_of(otherAccount.address)).to.be.gt(_buyer_eth_balance_after_purchase)
+    })
+
+    it("should only allow approving the Project Token contract only", async () => {
+
+      const { amm_token, otherAccount, randomAccount } = await loadFixture(
+        initialize_amm_token
+      );
+
+      await expect(
+        amm_token.connect(otherAccount).approveAndCall(
+          randomAccount.address,
+          ETH(1).toString() // 1 Token
+        )).to.be.revertedWith("ERC1363: approve a non contract address");
     })
   });
 });
